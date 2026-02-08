@@ -55,7 +55,7 @@ pub fn run() {
                         visible = true;
                     }
 
-                    // Adjust speed of blink here (500ms = 2 blinks per second)
+                    // 500ms = 2 blinks per second
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             });

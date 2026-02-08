@@ -23,6 +23,18 @@ function App() {
         loadDisks();
     }, []);
 
+    const formatBytes = (bytes: number, decimals = 2) => {
+        if (bytes === 0) return '0 Bytes';
+
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
+
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    };
+
   return (
       <main className="container p-8 max-w-2xl mx-auto">
           <h1 className="text-3xl font-bold text-slate-200 mb-8">Disk Space Monitor</h1>
@@ -54,13 +66,9 @@ function App() {
                               />
                           </div>
 
-                          <div className="flex justify-between text-sm text-slate-600">
-                <span>
-                  Used: {(usedSpace / 1024 / 1024 / 1024).toFixed(2)} GB
-                </span>
-                              <span>
-                  Total: {(disk.total_space / 1024 / 1024 / 1024).toFixed(2)} GB
-                </span>
+                          <div className="flex justify-between text-sm text-slate-600 font-mono">
+                              <span>Used: {formatBytes(usedSpace)}</span>
+                              <span>Total: {formatBytes(disk.total_space)}</span>
                           </div>
                       </div>
                   );
