@@ -76,16 +76,22 @@ pub fn run() {
                             let tooltip: Option<String> = Some(msg);
                             let _ = tray_handle.set_tooltip(tooltip);
                         }
+
                         last_check = std::time::Instant::now();
                     }
 
                     if !low_disk_names.is_empty() {
+                        // Toggle visibility for blinking
                         visible = !visible;
                         let _ = tray_handle.set_icon(if visible { Some(normal_icon.clone()) } else { None });
-                    } else if !visible {
-                        let _ = tray_handle.set_icon(Some(normal_icon.clone()));
-                        visible = true;
+                    } else {
+                        // FORCE logic: If no disks are low, ensure icon is visible and reset state
+                        if !visible {
+                            let _ = tray_handle.set_icon(Some(normal_icon.clone()));
+                            visible = true;
+                        }
                     }
+
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             });
