@@ -11,4 +11,5 @@ Disk space monitor in Rust using the Tauri framework
 - `cd dsm-tauri`
 - `pnpm tauri dev`
 
+
 ![Screenshot](screenshots/monitor.png)

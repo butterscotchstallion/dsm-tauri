@@ -69,7 +69,7 @@ pub fn run() {
                             .collect();
 
                         if low_disk_names.is_empty() {
-                            let tooltip: Option<String> = Some("Disk Space Monitor: All clear".into());
+                            let tooltip: Option<String> = Some("Disk Space Monitor: No disks with low space".into());
                             let _ = tray_handle.set_tooltip(tooltip);
                         } else {
                             let msg: String = format!("Low Space Warning: {}", low_disk_names.join(", "));
@@ -98,7 +98,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![disk::get_disks])
+        .invoke_handler(tauri::generate_handler![get_disks])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
