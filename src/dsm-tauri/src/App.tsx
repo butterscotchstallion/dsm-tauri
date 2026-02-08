@@ -10,34 +10,62 @@ interface Disk {
 
 function App() {
     const [disks, setDisks] = useState<Disk[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
     useEffect(() => {
-        const loadDisks = async () => {
-            try {
-                const result: Disk[] = await invoke("get_disks");
-                setDisks(result);
-            } catch (error) {
-                console.error("Failed to fetch disks:", error);
-            }
-        };
         loadDisks();
+        // Refresh every 15 minutes
+        const interval = setInterval(loadDisks, 15 * 60 * 1000);
+        return () => clearInterval(interval);
     }, []);
+
+    const loadDisks = async () => {
+        setIsLoading(true);
+        try {
+            const result: Disk[] = await invoke("get_disks");
+            setDisks(result);
+            setLastUpdated(new Date());
+        } catch (error) {
+            console.error("Failed to fetch disks:", error);
+        } finally {
+            // Small delay so the user can actually see the "refreshing" state
+            setTimeout(() => setIsLoading(false), 500);
+        }
+    };
 
     const formatBytes = (bytes: number, decimals = 2) => {
         if (bytes === 0) return '0 Bytes';
-
         const k = 1024;
         const dm = decimals < 0 ? 0 : decimals;
         const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
-
         const i = Math.floor(Math.log(bytes) / Math.log(k));
-
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     };
 
   return (
       <main className="container p-8 max-w-2xl mx-auto">
-          <h1 className="text-3xl font-bold text-slate-200 mb-8">Disk Space Monitor</h1>
+          <div className="flex justify-between items-center mb-2">
+              <h1 className="text-3xl font-bold text-slate-200">Disk Space Monitor</h1>
+              <button
+                  onClick={loadDisks}
+                  disabled={isLoading}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                      isLoading
+                          ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                          : 'bg-blue-600 text-white hover:bg-blue-500 active:scale-95'
+                  }`}
+              >
+                  {isLoading ? 'Refreshing...' : 'Refresh Now'}
+              </button>
+          </div>
+
+          <div className="mb-4 text-sm text-slate-400 flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${isLoading ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></div>
+              {lastUpdated
+                  ? `Last updated: ${lastUpdated.toLocaleTimeString()}`
+                  : 'Initial load...'}
+          </div>
 
           <div className="grid gap-6">
               {disks.map((disk, index) => {
@@ -47,7 +75,7 @@ function App() {
                       : 0;
 
                   return (
-                      <div key={index} className="p-6 bg-white shadow-sm rounded-xl border border-slate-200">
+                      <div key={index} className="p-4 bg-white shadow-sm rounded-xl border border-slate-200">
                           <div className="flex justify-between items-end mb-2">
                               <h2 className="font-bold text-lg text-slate-700">{disk.name || "Local Disk"}</h2>
                               <span className="text-sm font-medium text-slate-500">
