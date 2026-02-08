@@ -5,8 +5,10 @@ Disk space manager in Rust using the Tauri framework
 - Monitor disk space usage
 - Identify low disk space drives
 - Visualize disk space usage
-- Manage disk space with ease
+- System tray icon that flashes when low disk space is detected
 
 ## Running the app
 - `cd dsm-tauri`
 - `pnpm tauri dev`
+
+![Screenshot](screenshots/monitor.png)
