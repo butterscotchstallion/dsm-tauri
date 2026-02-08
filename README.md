@@ -1,5 +1,5 @@
-# dsm-tauri
-Disk space manager in Rust using the Tauri framework
+# Disk Space Monitor
+Disk space monitor in Rust using the Tauri framework
 
 ## Features
 - Monitor disk space usage
