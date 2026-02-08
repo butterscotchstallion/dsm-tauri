@@ -30,22 +30,36 @@ pub fn run() {
 
             tauri::async_runtime::spawn(async move {
                 let mut visible = true;
-                let mut is_low = false; // Store the state
+                let mut low_disk_names: Vec<String> = Vec::new();
                 let normal_icon = app_handle.default_window_icon().unwrap().clone();
+
                 let mut last_check = std::time::Instant::now() - Duration::from_secs(15 * 60);
 
                 loop {
-                    // Only refresh disk info every 15 minutes
                     if last_check.elapsed() >= Duration::from_secs(15 * 60) {
                         let disks = Disks::new_with_refreshed_list();
-                        is_low = disks.iter().any(|d| {
-                            let ratio = d.available_space() as f64 / d.total_space() as f64;
-                            ratio < 0.10
-                        });
+
+                        // Collect names of disks with < 10% space
+                        low_disk_names = disks.iter()
+                            .filter(|d| {
+                                let ratio = d.available_space() as f64 / d.total_space() as f64;
+                                ratio < 0.10
+                            })
+                            .map(|d| d.name().to_string_lossy().into_owned())
+                            .collect();
+
+                        // Update tooltip based on status
+                        if low_disk_names.is_empty() {
+                            let _ = tray_handle.set_tooltip(Some("Disk Space Monitor: All clear".to_string()));
+                        } else {
+                            let msg = format!("Low Space Warning: {}", low_disk_names.join(", "));
+                            let _ = tray_handle.set_tooltip(Some(msg));
+                        }
+
                         last_check = std::time::Instant::now();
                     }
 
-                    if is_low {
+                    if !low_disk_names.is_empty() {
                         visible = !visible;
                         let _ = tray_handle.set_icon(if visible { Some(normal_icon.clone()) } else { None });
                     } else if !visible {
@@ -53,7 +67,6 @@ pub fn run() {
                         visible = true;
                     }
 
-                    // Blink interval stays fast, but disk check above is slow
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             });
