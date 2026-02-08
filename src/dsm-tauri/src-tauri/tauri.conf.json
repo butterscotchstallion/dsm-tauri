@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Disk Space Monitor",
         "width": 650,
         "height": 550

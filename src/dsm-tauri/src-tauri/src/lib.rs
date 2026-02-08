@@ -3,6 +3,7 @@ use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use sysinfo::Disks;
+use tauri::Manager;
 
 mod disk;
 
@@ -11,51 +12,70 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // 1. Menu and Window Setup
+            let show_i = MenuItem::with_id(app, "show", "Show Monitor", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&quit_i])?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
             let tray = TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .show_menu_on_left_click(true)
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
                 .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
                 .build(app)?;
 
-            // Background thread for the "Blinking" effect
+            // 2. Hide-on-close logic
+            let window = app.get_webview_window("main").unwrap();
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window_clone.hide();
+                }
+            });
+
+            // 3. Background Loop for Tooltips and Blinking
             let tray_handle = tray.clone();
             let app_handle = app.handle().clone();
-
             tauri::async_runtime::spawn(async move {
                 let mut visible = true;
                 let mut low_disk_names: Vec<String> = Vec::new();
                 let normal_icon = app_handle.default_window_icon().unwrap().clone();
-
                 let mut last_check = std::time::Instant::now() - Duration::from_secs(15 * 60);
 
                 loop {
                     if last_check.elapsed() >= Duration::from_secs(15 * 60) {
                         let disks = Disks::new_with_refreshed_list();
-
-                        // Collect names of disks with < 10% space
                         low_disk_names = disks.iter()
-                            .filter(|d| {
-                                let ratio = d.available_space() as f64 / d.total_space() as f64;
-                                ratio < 0.10
-                            })
+                            .filter(|d| (d.available_space() as f64 / d.total_space() as f64) < 0.10)
                             .map(|d| d.name().to_string_lossy().into_owned())
                             .collect();
 
-                        // Update tooltip based on status
                         if low_disk_names.is_empty() {
-                            let _ = tray_handle.set_tooltip(Some("Disk Space Monitor: All clear".to_string()));
+                            let tooltip: Option<String> = Some("Disk Space Monitor: All clear".into());
+                            let _ = tray_handle.set_tooltip(tooltip);
                         } else {
-                            let msg = format!("Low Space Warning: {}", low_disk_names.join(", "));
-                            let _ = tray_handle.set_tooltip(Some(msg));
+                            let msg: String = format!("Low Space Warning: {}", low_disk_names.join(", "));
+                            let tooltip: Option<String> = Some(msg);
+                            let _ = tray_handle.set_tooltip(tooltip);
                         }
-
                         last_check = std::time::Instant::now();
                     }
 
@@ -66,7 +86,6 @@ pub fn run() {
                         let _ = tray_handle.set_icon(Some(normal_icon.clone()));
                         visible = true;
                     }
-
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             });
