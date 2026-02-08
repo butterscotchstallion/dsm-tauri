@@ -30,32 +30,30 @@ pub fn run() {
 
             tauri::async_runtime::spawn(async move {
                 let mut visible = true;
+                let mut is_low = false; // Store the state
                 let normal_icon = app_handle.default_window_icon().unwrap().clone();
+                let mut last_check = std::time::Instant::now() - Duration::from_secs(15 * 60);
 
                 loop {
-                    // Check if any disk is below 10%
-                    let disks = Disks::new_with_refreshed_list();
-                    let is_low = disks.iter().any(|d| {
-                        let ratio = d.available_space() as f64 / d.total_space() as f64;
-                        ratio < 0.10 // 10% threshold
-                    });
+                    // Only refresh disk info every 15 minutes
+                    if last_check.elapsed() >= Duration::from_secs(15 * 60) {
+                        let disks = Disks::new_with_refreshed_list();
+                        is_low = disks.iter().any(|d| {
+                            let ratio = d.available_space() as f64 / d.total_space() as f64;
+                            ratio < 0.10
+                        });
+                        last_check = std::time::Instant::now();
+                    }
 
                     if is_low {
-                        // Toggle icon to create blink effect
                         visible = !visible;
-                        if visible {
-                            let _ = tray_handle.set_icon(Some(normal_icon.clone()));
-                        } else {
-                            // Setting icon to None makes it "invisible" or "empty"
-                            let _ = tray_handle.set_icon(None);
-                        }
+                        let _ = tray_handle.set_icon(if visible { Some(normal_icon.clone()) } else { None });
                     } else if !visible {
-                        // Reset to normal if space is no longer low
                         let _ = tray_handle.set_icon(Some(normal_icon.clone()));
                         visible = true;
                     }
 
-                    // 500ms = 2 blinks per second
+                    // Blink interval stays fast, but disk check above is slow
                     tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             });
