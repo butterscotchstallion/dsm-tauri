@@ -1,7 +1,7 @@
 import "./App.css";
 import {useEffect, useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
-
+import { ArrowPathIcon } from '@heroicons/react/24/solid';
 interface Disk {
     name: string;
     total_space: number;
@@ -48,15 +48,16 @@ function App() {
           <div className="flex justify-between items-center mb-2">
               <h1 className="text-3xl font-bold text-slate-200">Disk Space Monitor</h1>
               <button
+                  title="Refresh disk usage data"
                   onClick={loadDisks}
                   disabled={isLoading}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                  className={`rounded-lg font-medium transition-all ${
                       isLoading
                           ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
                           : 'bg-blue-600 text-white hover:bg-purple-900 active:scale-95'
                   }`}
               >
-                  {isLoading ? 'Refreshing...' : 'Refresh Now'}
+                  <ArrowPathIcon className="w-4 h-4" />
               </button>
           </div>
 
