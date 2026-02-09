@@ -15,7 +15,9 @@
         "label": "main",
         "title": "Disk Space Monitor",
         "width": 650,
-        "height": 550
+        "height": 550,
+        "resizable": false,
+        "maximizable": false
       }
     ],
     "security": {
