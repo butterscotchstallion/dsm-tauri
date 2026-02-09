@@ -81,7 +81,6 @@ pub fn run() {
                     }
 
                     if !low_disk_names.is_empty() {
-                        // Toggle visibility for blinking
                         visible = !visible;
                         let _ = tray_handle.set_icon(if visible { Some(normal_icon.clone()) } else { None });
                     } else {
@@ -100,7 +99,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![get_disks, launch_disk_cleanup])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error while running Disk Space Monitor");
 }
 
 #[tauri::command]
@@ -108,8 +107,8 @@ fn launch_disk_cleanup() {
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
-        // cleanmgr.exe /lowdisk is a common flag to open the selection dialog
         let _ = Command::new("cleanmgr.exe")
+            .arg("/lowdisk")
             .spawn();
     }
 }
