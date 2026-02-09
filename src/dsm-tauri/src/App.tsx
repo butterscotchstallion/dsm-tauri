@@ -87,15 +87,14 @@ function App() {
                   : 'Initial load...'}
           </div>
 
-          <div className="grid gap-6">
+          <div className="grid gap-4">
               {disks.map((disk, index) => {
                   const usedSpace = disk.total_space - disk.available_space;
                   const usedPercentage = disk.total_space > 0
                       ? (usedSpace / disk.total_space) * 100
                       : 0;
-
                   return (
-                      <div key={index} className="p-4 bg-white shadow-sm rounded-xl border border-slate-200">
+                      <div key={index} className="p-4 bg-white shadow-sm rounded-xl border border-slate-900">
                           <div className="flex justify-between items-end mb-2">
                               <h2 className="font-bold text-lg text-slate-900">{disk.name || "Local Disk"}</h2>
                               <span className="text-sm font-medium text-slate-900">
