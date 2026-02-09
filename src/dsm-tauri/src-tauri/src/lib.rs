@@ -98,7 +98,18 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_disks])
+        .invoke_handler(tauri::generate_handler![get_disks, launch_disk_cleanup])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[tauri::command]
+fn launch_disk_cleanup() {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        // cleanmgr.exe /lowdisk is a common flag to open the selection dialog
+        let _ = Command::new("cleanmgr.exe")
+            .spawn();
+    }
 }

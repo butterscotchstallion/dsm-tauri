@@ -1,7 +1,7 @@
 import "./App.css";
 import {useEffect, useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
-import { ArrowPathIcon } from '@heroicons/react/24/solid';
+import { ArrowPathIcon, TrashIcon } from '@heroicons/react/24/solid';
 interface Disk {
     name: string;
     total_space: number;
@@ -43,22 +43,41 @@ function App() {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     };
 
+    const openCleanup = async () => {
+        try {
+            await invoke("launch_disk_cleanup");
+        } catch (error) {
+            console.error("Failed to launch disk cleanup:", error);
+        }
+    };
+
     return (
       <main className="container p-8 mx-auto">
           <div className="flex justify-between items-center mb-2">
               <h1 className="text-3xl font-bold text-slate-200">Disk Space Monitor</h1>
-              <button
-                  title="Refresh disk usage data"
-                  onClick={loadDisks}
-                  disabled={isLoading}
-                  className={`rounded-lg font-medium transition-all ${
-                      isLoading
-                          ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                          : 'bg-blue-600 text-white hover:bg-purple-900 active:scale-95'
-                  }`}
-              >
-                  <ArrowPathIcon className="w-4 h-4" />
-              </button>
+
+              <div className="flex gap-2">
+                  <button
+                      title="Launch Disk Cleanup Tool"
+                      onClick={openCleanup}
+                      className="px-4 py-2 rounded-lg font-medium bg-slate-700 text-slate-200 hover:bg-slate-600 transition-all active:scale-95 border border-slate-600"
+                  >
+                      <TrashIcon className="w-4 h-4" />
+                  </button>
+
+                  <button
+                      title="Refresh disk usage data"
+                      onClick={loadDisks}
+                      disabled={isLoading}
+                      className={`rounded-lg font-medium transition-all ${
+                          isLoading
+                              ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                              : 'bg-blue-600 text-white hover:bg-purple-900 active:scale-95'
+                      }`}
+                  >
+                      <ArrowPathIcon className="w-4 h-4" />
+                  </button>
+              </div>
           </div>
 
           <div className="mb-4 text-sm text-slate-400 flex items-center gap-2">
