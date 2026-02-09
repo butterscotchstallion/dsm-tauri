@@ -43,8 +43,8 @@ function App() {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     };
 
-  return (
-      <main className="container p-8 max-w-2xl mx-auto">
+    return (
+      <main className="container p-8 mx-auto">
           <div className="flex justify-between items-center mb-2">
               <h1 className="text-3xl font-bold text-slate-200">Disk Space Monitor</h1>
               <button
@@ -53,7 +53,7 @@ function App() {
                   className={`px-4 py-2 rounded-lg font-medium transition-all ${
                       isLoading
                           ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                          : 'bg-blue-600 text-white hover:bg-blue-500 active:scale-95'
+                          : 'bg-blue-600 text-white hover:bg-purple-900 active:scale-95'
                   }`}
               >
                   {isLoading ? 'Refreshing...' : 'Refresh Now'}
@@ -77,24 +77,23 @@ function App() {
                   return (
                       <div key={index} className="p-4 bg-white shadow-sm rounded-xl border border-slate-200">
                           <div className="flex justify-between items-end mb-2">
-                              <h2 className="font-bold text-lg text-slate-700">{disk.name || "Local Disk"}</h2>
-                              <span className="text-sm font-medium text-slate-500">
+                              <h2 className="font-bold text-lg text-slate-900">{disk.name || "Local Disk"}</h2>
+                              <span className="text-sm font-medium text-slate-900">
                                   {usedPercentage.toFixed(1)}% Used
                               </span>
                           </div>
 
                           {/* Progress Bar Container */}
-                          <div className="w-full bg-slate-100 rounded-full h-4 mb-4 overflow-hidden">
-                              {/* Progress Bar Fill */}
+                          <div className="w-full bg-slate-200 rounded-full h-4 mb-4 overflow-hidden">
                               <div
                                   className={`h-full rounded-full transition-all duration-500 ${
-                                      usedPercentage > 90 ? 'bg-red-500' : usedPercentage > 75 ? 'bg-amber-500' : 'bg-blue-500'
+                                      usedPercentage > 90 ? 'bg-red-500' : usedPercentage > 75 ? 'bg-amber-500' : 'bg-purple-900'
                                   }`}
                                   style={{ width: `${usedPercentage}%` }}
                               />
                           </div>
 
-                          <div className="flex justify-between text-sm text-slate-600 font-mono">
+                          <div className="flex justify-between text-sm text-slate-900 font-mono">
                               <span>Used: {formatBytes(usedSpace)}</span>
                               <span>Total: {formatBytes(disk.total_space)}</span>
                           </div>
