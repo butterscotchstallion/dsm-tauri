@@ -1,17 +1,35 @@
 use crate::disk::get_disks;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use sysinfo::Disks;
 use tauri::Manager;
 
+const LOW_SPACE_THRESHOLD: f64 = 0.10;
+const CHECK_SPACE_INTERVAL: u64 = 15 * 60;
 mod disk;
+
+struct AppState {
+    is_low_space: Arc<AtomicBool>,
+}
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 1. Create the shared data structure
+    let is_low_space = Arc::new(AtomicBool::new(false));
+
+    // 2. Clone it so we can "move" it into the setup closure
+    // while still keeping the original for the manage() call
+    let is_low_for_setup = is_low_space.clone();
+
     tauri::Builder::default()
+        .manage(AppState { is_low_space })
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            let is_low_for_loop = is_low_for_setup;
+
             // 1. Menu and Window Setup
             let show_i = MenuItem::with_id(app, "show", "Show Monitor", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -20,6 +38,7 @@ pub fn run() {
             let tray = TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
+                .tooltip("Disk Space Monitor: Checking...")
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. } = event {
                         let app = tray.app_handle();
@@ -54,44 +73,49 @@ pub fn run() {
             // 3. Background Loop for Tooltips and Blinking
             let tray_handle = tray.clone();
             let app_handle = app.handle().clone();
+            let is_low_checker = is_low_for_loop.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    let disks = disk::get_disks_logic();
+                    let low = disks.iter().any(
+                        |d| (d.available_space as f64 / d.total_space as f64) < LOW_SPACE_THRESHOLD
+                    );
+                    is_low_checker.store(low, Ordering::Relaxed);
+
+                    // Update the tooltip during background check too
+                    let names: Vec<String> = disks.iter()
+                        .filter(|d| (d.available_space as f64 / d.total_space as f64) <= LOW_SPACE_THRESHOLD)
+                        .map(|d| d.name.clone())
+                        .collect();
+
+                    if names.is_empty() {
+                        let _: Option<String> = Some("Disk Space Monitor: All clear".into());
+                    } else {
+                        let _ = tray_handle.set_tooltip(Some(format!("Low Space Warning: {}", names.join(", "))));
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(CHECK_SPACE_INTERVAL)).await;
+                }
+            });
+
+            let is_low_blinker = is_low_for_loop.clone();
+            let tray_for_blink = tray.clone();
             tauri::async_runtime::spawn(async move {
                 let mut visible = true;
-                let mut low_disk_names: Vec<String> = Vec::new();
                 let normal_icon = app_handle.default_window_icon().unwrap().clone();
-                let mut last_check = std::time::Instant::now() - Duration::from_secs(15 * 60);
 
                 loop {
-                    if last_check.elapsed() >= Duration::from_secs(15 * 60) {
-                        let disks = Disks::new_with_refreshed_list();
-                        low_disk_names = disks.iter()
-                            .filter(|d| (d.available_space() as f64 / d.total_space() as f64) < 0.10)
-                            .map(|d| d.name().to_string_lossy().into_owned())
-                            .collect();
+                    let is_low = is_low_blinker.load(Ordering::Relaxed);
 
-                        if low_disk_names.is_empty() {
-                            let tooltip: Option<String> = Some("Disk Space Monitor: No disks with low space".into());
-                            let _ = tray_handle.set_tooltip(tooltip);
-                        } else {
-                            let msg: String = format!("Low Space Warning: {}", low_disk_names.join(", "));
-                            let tooltip: Option<String> = Some(msg);
-                            let _ = tray_handle.set_tooltip(tooltip);
-                        }
-
-                        last_check = std::time::Instant::now();
-                    }
-
-                    if !low_disk_names.is_empty() {
+                    if is_low {
                         visible = !visible;
-                        let _ = tray_handle.set_icon(if visible { Some(normal_icon.clone()) } else { None });
-                    } else {
-                        // FORCE logic: If no disks are low, ensure icon is visible and reset state
-                        if !visible {
-                            let _ = tray_handle.set_icon(Some(normal_icon.clone()));
-                            visible = true;
-                        }
+                        let _ = tray_for_blink.set_icon(if visible { Some(normal_icon.clone()) } else { None });
+                    } else if !visible {
+                        let _ = tray_for_blink.set_icon(Some(normal_icon.clone()));
+                        visible = true;
                     }
 
-                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    tokio::time::sleep(Duration::from_secs(CHECK_SPACE_INTERVAL)).await;
                 }
             });
 
@@ -110,5 +134,63 @@ fn launch_disk_cleanup() {
         let _ = Command::new("cleanmgr.exe")
             .arg("/lowdisk")
             .spawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::disk::DiskInfo;
+    use crate::AppState;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    #[test]
+    fn test_low_disk_threshold_detection() {
+        // 1. Setup mock data
+        let disks = vec![
+            DiskInfo {
+                name: "Healthy".into(),
+                total_space: 100,
+                available_space: 50,
+            },
+            DiskInfo {
+                name: "Low".into(),
+                total_space: 100,
+                available_space: 5, // 5% < 10% threshold
+            },
+        ];
+
+        // 2. Initialize AppState correctly
+        let state = AppState {
+            is_low_space: Arc::new(AtomicBool::new(false)),
+        };
+
+        // 3. Run the same logic used in the get_disks command
+        let low_names: Vec<String> = disks.iter()
+            .filter(|d| (d.available_space as f64 / d.total_space as f64) < 0.10)
+            .map(|d| d.name.clone())
+            .collect();
+
+        // 4. Update the state
+        state.is_low_space.store(!low_names.is_empty(), Ordering::Relaxed);
+
+        // 5. Assertions
+        assert_eq!(low_names.len(), 1, "Should have found exactly one low disk");
+        assert_eq!(low_names[0], "Low");
+        assert!(state.is_low_space.load(Ordering::Relaxed), "AtomicBool should be true");
+    }
+
+    #[test]
+    fn test_threshold_boundary() {
+        let disks = vec![
+            DiskInfo {
+                name: "Exact Threshold".into(),
+                total_space: 100,
+                available_space: 10, // 10% is NOT < 10%
+            },
+        ];
+
+        let low = disks.iter().any(|d| (d.available_space as f64 / d.total_space as f64) < 0.10);
+        assert!(!low, "10% should not trigger the low space warning (it's less than, not less than or equal)");
     }
 }
