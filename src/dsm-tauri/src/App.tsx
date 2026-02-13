@@ -54,7 +54,9 @@ function App() {
     return (
       <main className="container p-8 mx-auto">
           <div className="flex justify-between items-center mb-2">
-              <h1 className="text-3xl font-bold text-slate-200">Disk Space Monitor</h1>
+              <h1 className="text-3xl font-bold text-slate-200 hover:text-slate-400">
+                  Disk Space Monitor
+              </h1>
 
               <div className="flex gap-2">
                   <button
