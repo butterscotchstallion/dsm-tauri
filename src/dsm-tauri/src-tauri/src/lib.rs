@@ -17,6 +17,14 @@ struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Determine the log directory (installation folder /logs)
+    let log_path = std::env::current_exe()
+        .map(|p| p.parent().unwrap().join("logs"))
+        .expect("failed to determine log path");
+
+    // Ensure the directory exists
+    let _ = std::fs::create_dir_all(&log_path);
+    
     // 1. Create the shared data structure
     let is_low_space = Arc::new(AtomicBool::new(false));
 
@@ -25,21 +33,30 @@ pub fn run() {
     let is_low_for_setup = is_low_space.clone();
 
     tauri::Builder::default()
-        .manage(AppState { is_low_space })
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_log::Builder::default()
             .targets([
                 Target::new(TargetKind::Stdout),
                 Target::new(TargetKind::Webview),
+                Target::new(TargetKind::Folder {
+                    path: std::env::current_exe()
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .join("logs"),
+                    file_name: Some("app".to_string()),
+                }),
             ])
             .rotation_strategy(RotationStrategy::KeepSome(5))
+            .max_file_size(10 * 1024 * 1024) // 10MB limit per file
             .level(log::LevelFilter::Info)
             .build())
+        .manage(AppState { is_low_space })
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let version = app.config().version.clone().unwrap_or_default();
             let window = app.get_webview_window("main").unwrap();
             let _ = window.set_title(&format!("Disk Space Monitor v{}", version));
-            
+
             let is_low_for_loop = is_low_for_setup;
 
             // 1. Menu and Window Setup
@@ -87,8 +104,9 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let is_low_checker = is_low_for_loop.clone();
             tauri::async_runtime::spawn(async move {
+                log::info!("Starting background disk space check...");
                 loop {
-                    let disks = disk::get_disks_logic();
+                    let disks = disk::get_disks_list();
                     let low = disks.iter().any(
                         |d| (d.available_space as f64 / d.total_space as f64) < LOW_SPACE_THRESHOLD
                     );

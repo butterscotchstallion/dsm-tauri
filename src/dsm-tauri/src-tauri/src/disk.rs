@@ -23,7 +23,7 @@ pub fn get_low_disk_names(disks: &[DiskInfo], threshold: f64) -> Vec<String> {
         .collect()
 }
 
-pub fn get_disks_logic() -> Vec<DiskInfo> {
+pub fn get_disks_list() -> Vec<DiskInfo> {
     let disks = Disks::new_with_refreshed_list();
     disks.iter().map(|disk| DiskInfo {
         name: disk.name().to_string_lossy().into_owned(),
@@ -37,7 +37,7 @@ pub fn get_disks(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Vec<DiskInfo> {
-    let disks = get_disks_logic();
+    let disks = get_disks_list();
     let low_names: Vec<String> = get_low_disk_names(&disks, LOW_SPACE_THRESHOLD);
 
     // 1. Update the blinking state
@@ -52,6 +52,6 @@ pub fn get_disks(
         };
         let _ = tray.set_tooltip(tooltip);
     }
-    
+
     disks
 }
