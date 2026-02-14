@@ -17,13 +17,7 @@ struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 1. Create the shared data structure
     let is_low_space = Arc::new(AtomicBool::new(false));
-
-    // 2. Clone it so we can "move" it into the setup closure
-    // while still keeping the original for the manage() call
-    let is_low_for_setup = is_low_space.clone();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default()
             .targets([
@@ -33,11 +27,19 @@ pub fn run() {
                 // This directory is always writable by the user.
                 Target::new(TargetKind::LogDir { file_name: Some("app".to_string()) }),
             ])
+            .format(|out, message, record| {
+                out.finish(format_args!(
+                    "{} [{}] {}",
+                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                    record.level(),
+                    message
+                ))
+            })
             .rotation_strategy(RotationStrategy::KeepSome(5))
             .max_file_size(10 * 1024 * 1024) // 10MB
             .level(log::LevelFilter::Info)
             .build())
-        .manage(AppState { is_low_space })
+        .manage(AppState { is_low_space: is_low_space.clone() })
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let version = app.config().version.clone().unwrap_or_default();
@@ -46,8 +48,6 @@ pub fn run() {
             let _ = window.set_title(&app_name_and_version);
 
             log::info!("Starting {}", app_name_and_version);
-
-            let is_low_for_loop = is_low_for_setup;
 
             // 1. Menu and Window Setup
             let show_i = MenuItem::with_id(app, "show", "Show Monitor", true, None::<&str>)?;
@@ -80,7 +80,6 @@ pub fn run() {
                 .build(app)?;
 
             // 2. Hide-on-close logic
-            let window = app.get_webview_window("main").unwrap();
             let window_clone = window.clone();
             window.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -89,21 +88,15 @@ pub fn run() {
                 }
             });
 
-            // 3. Background Loop for Tooltips and Blinking
+            // 3. Background Loop for Tooltips
             let tray_handle = tray.clone();
             let app_handle = app.handle().clone();
-            let is_low_checker = is_low_for_loop.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     let disks = disk::get_disks_list();
-                    let low = disks.iter().any(
-                        |d| (d.available_space as f64 / d.total_space as f64) < LOW_SPACE_THRESHOLD
-                    );
-                    is_low_checker.store(low, Ordering::Relaxed);
-
-                    // Update the tooltip during background check too
                     let names: Vec<String> = disk::get_low_disk_names(&disks, LOW_SPACE_THRESHOLD);
 
+                    // Update the tooltip during background check too
                     if names.is_empty() {
                         let _: Option<String> = Some("Disk Space Monitor: All clear".into());
                     } else {
@@ -116,8 +109,9 @@ pub fn run() {
                 }
             });
 
-            let is_low_blinker = is_low_for_loop.clone();
-            let tray_for_blink = tray.clone();
+            // Handle blinking
+            let is_low_blinker = is_low_space;
+            let tray_for_blink = tray;
             tauri::async_runtime::spawn(async move {
                 let mut visible = true;
                 let normal_icon = app_handle.default_window_icon().unwrap().clone();
@@ -168,6 +162,34 @@ mod tests {
     use crate::{AppState, LOW_SPACE_THRESHOLD};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+
+    #[test]
+    fn test_low_space_state_lifecycle() {
+        // 1. Initialize State
+        let state = AppState {
+            is_low_space: Arc::new(AtomicBool::new(false)),
+        };
+
+        // 2. Simulate Scenario: One disk is low
+        let disks_with_low = vec![
+            DiskInfo { name: "C:".into(), total_space: 100, available_space: 5 }, // 5% < 10%
+        ];
+
+        let low_names = get_low_disk_names(&disks_with_low, LOW_SPACE_THRESHOLD);
+        state.is_low_space.store(!low_names.is_empty(), Ordering::Relaxed);
+
+        assert!(state.is_low_space.load(Ordering::Relaxed), "Blinking should be ENABLED when a disk is low");
+
+        // 3. Simulate Scenario: Drive space is freed up
+        let disks_healthy = vec![
+            DiskInfo { name: "C:".into(), total_space: 100, available_space: 50 }, // 50% > 10%
+        ];
+
+        let low_names_cleared = get_low_disk_names(&disks_healthy, LOW_SPACE_THRESHOLD);
+        state.is_low_space.store(!low_names_cleared.is_empty(), Ordering::Relaxed);
+
+        assert!(!state.is_low_space.load(Ordering::Relaxed), "Blinking should be DISABLED when no disks are low");
+    }
 
     #[test]
     fn test_low_disk_threshold_detection() {
