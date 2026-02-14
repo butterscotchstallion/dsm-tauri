@@ -17,22 +17,6 @@ struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let log_path = setup_log_path();
-    let log_builder = tauri_plugin_log::Builder::default()
-        .targets([
-            Target::new(TargetKind::Stdout),
-            Target::new(TargetKind::Webview),
-        ])
-        .rotation_strategy(RotationStrategy::KeepSome(5))
-        .max_file_size(10 * 1024 * 1024)
-        .level(log::LevelFilter::Info);
-    if let Some(path) = log_path {
-        _ = log_builder.target(Target::new(TargetKind::Folder {
-            path,
-            file_name: Some("app".to_string()),
-        }));
-    }
-
     // 1. Create the shared data structure
     let is_low_space = Arc::new(AtomicBool::new(false));
 
@@ -45,17 +29,12 @@ pub fn run() {
             .targets([
                 Target::new(TargetKind::Stdout),
                 Target::new(TargetKind::Webview),
-                Target::new(TargetKind::Folder {
-                    path: std::env::current_exe()
-                        .unwrap()
-                        .parent()
-                        .unwrap()
-                        .join("logs"),
-                    file_name: Some("app".to_string()),
-                }),
+                // LogDir maps to %APPDATA%/{identifier}/logs on Windows.
+                // This directory is always writable by the user.
+                Target::new(TargetKind::LogDir { file_name: Some("app".to_string()) }),
             ])
             .rotation_strategy(RotationStrategy::KeepSome(5))
-            .max_file_size(10 * 1024 * 1024) // 10MB limit per file
+            .max_file_size(10 * 1024 * 1024) // 10MB
             .level(log::LevelFilter::Info)
             .build())
         .manage(AppState { is_low_space })
@@ -63,7 +42,10 @@ pub fn run() {
         .setup(|app| {
             let version = app.config().version.clone().unwrap_or_default();
             let window = app.get_webview_window("main").unwrap();
-            let _ = window.set_title(&format!("Disk Space Monitor v{}", version));
+            let appNameAndVersion = format!("Disk Space Monitor v{}", version);
+            let _ = window.set_title(&appNameAndVersion);
+
+            log::info!("Starting {}", appNameAndVersion);
 
             let is_low_for_loop = is_low_for_setup;
 
