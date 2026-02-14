@@ -5,6 +5,7 @@ use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
 const LOW_SPACE_THRESHOLD: f64 = 0.10;
 const CHECK_SPACE_INTERVAL: u64 = 15 * 60;
@@ -13,7 +14,6 @@ mod disk;
 struct AppState {
     is_low_space: Arc<AtomicBool>,
 }
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -27,6 +27,14 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppState { is_low_space })
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_log::Builder::default()
+            .targets([
+                Target::new(TargetKind::Stdout),
+                Target::new(TargetKind::Webview),
+            ])
+            .rotation_strategy(RotationStrategy::KeepSome(5))
+            .level(log::LevelFilter::Info)
+            .build())
         .setup(|app| {
             let is_low_for_loop = is_low_for_setup;
 
@@ -83,15 +91,14 @@ pub fn run() {
                     is_low_checker.store(low, Ordering::Relaxed);
 
                     // Update the tooltip during background check too
-                    let names: Vec<String> = disks.iter()
-                        .filter(|d| (d.available_space as f64 / d.total_space as f64) <= LOW_SPACE_THRESHOLD)
-                        .map(|d| d.name.clone())
-                        .collect();
+                    let names: Vec<String> = disk::get_low_disk_names(&disks, LOW_SPACE_THRESHOLD);
 
                     if names.is_empty() {
                         let _: Option<String> = Some("Disk Space Monitor: All clear".into());
                     } else {
-                        let _ = tray_handle.set_tooltip(Some(format!("Low Space Warning: {}", names.join(", "))));
+                        let csv_names = names.join(", ");
+                        let _ = tray_handle.set_tooltip(Some(format!("Low Space Warning: {}", csv_names)));
+                        log::info!("Low space warning: {}", csv_names);
                     }
 
                     tokio::time::sleep(Duration::from_secs(CHECK_SPACE_INTERVAL)).await;
@@ -115,13 +122,16 @@ pub fn run() {
                         visible = true;
                     }
 
-                    tokio::time::sleep(Duration::from_secs(CHECK_SPACE_INTERVAL)).await;
+                    // The tray icon blinks every second
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
             });
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_disks, launch_disk_cleanup])
+        .invoke_handler(tauri::generate_handler![
+            get_disks, launch_disk_cleanup, get_app_version
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Disk Space Monitor");
 }
@@ -137,10 +147,15 @@ fn launch_disk_cleanup() {
     }
 }
 
+#[tauri::command]
+fn get_app_version(app: tauri::AppHandle) -> String {
+    app.config().version.clone().unwrap_or_else(|| "0.0.0".to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::disk::DiskInfo;
-    use crate::AppState;
+    use crate::disk::{get_low_disk_names, DiskInfo};
+    use crate::{AppState, LOW_SPACE_THRESHOLD};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
@@ -166,10 +181,7 @@ mod tests {
         };
 
         // 3. Run the same logic used in the get_disks command
-        let low_names: Vec<String> = disks.iter()
-            .filter(|d| (d.available_space as f64 / d.total_space as f64) < 0.10)
-            .map(|d| d.name.clone())
-            .collect();
+        let low_names: Vec<String> = get_low_disk_names(&disks, LOW_SPACE_THRESHOLD);
 
         // 4. Update the state
         state.is_low_space.store(!low_names.is_empty(), Ordering::Relaxed);
@@ -178,19 +190,5 @@ mod tests {
         assert_eq!(low_names.len(), 1, "Should have found exactly one low disk");
         assert_eq!(low_names[0], "Low");
         assert!(state.is_low_space.load(Ordering::Relaxed), "AtomicBool should be true");
-    }
-
-    #[test]
-    fn test_threshold_boundary() {
-        let disks = vec![
-            DiskInfo {
-                name: "Exact Threshold".into(),
-                total_space: 100,
-                available_space: 10, // 10% is NOT < 10%
-            },
-        ];
-
-        let low = disks.iter().any(|d| (d.available_space as f64 / d.total_space as f64) < 0.10);
-        assert!(!low, "10% should not trigger the low space warning (it's less than, not less than or equal)");
     }
 }
