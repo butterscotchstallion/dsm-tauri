@@ -17,14 +17,22 @@ struct AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Determine the log directory (installation folder /logs)
-    let log_path = std::env::current_exe()
-        .map(|p| p.parent().unwrap().join("logs"))
-        .expect("failed to determine log path");
+    let log_path = setup_log_path();
+    let log_builder = tauri_plugin_log::Builder::default()
+        .targets([
+            Target::new(TargetKind::Stdout),
+            Target::new(TargetKind::Webview),
+        ])
+        .rotation_strategy(RotationStrategy::KeepSome(5))
+        .max_file_size(10 * 1024 * 1024)
+        .level(log::LevelFilter::Info);
+    if let Some(path) = log_path {
+        _ = log_builder.target(Target::new(TargetKind::Folder {
+            path,
+            file_name: Some("app".to_string()),
+        }));
+    }
 
-    // Ensure the directory exists
-    let _ = std::fs::create_dir_all(&log_path);
-    
     // 1. Create the shared data structure
     let is_low_space = Arc::new(AtomicBool::new(false));
 
@@ -104,7 +112,6 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let is_low_checker = is_low_for_loop.clone();
             tauri::async_runtime::spawn(async move {
-                log::info!("Starting background disk space check...");
                 loop {
                     let disks = disk::get_disks_list();
                     let low = disks.iter().any(
@@ -156,6 +163,19 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Disk Space Monitor");
+}
+fn setup_log_path() -> Option<std::path::PathBuf> {
+    let log_path = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join("logs");
+
+    if let Err(e) = std::fs::create_dir_all(&log_path) {
+        eprintln!("Warning: Failed to create log directory at {:?}: {}", log_path, e);
+        return None;
+    }
+
+    Some(log_path)
 }
 
 #[tauri::command]
