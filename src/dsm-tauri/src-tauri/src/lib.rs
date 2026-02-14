@@ -36,6 +36,10 @@ pub fn run() {
             .level(log::LevelFilter::Info)
             .build())
         .setup(|app| {
+            let version = app.config().version.clone().unwrap_or_default();
+            let window = app.get_webview_window("main").unwrap();
+            let _ = window.set_title(&format!("Disk Space Monitor v{}", version));
+            
             let is_low_for_loop = is_low_for_setup;
 
             // 1. Menu and Window Setup
