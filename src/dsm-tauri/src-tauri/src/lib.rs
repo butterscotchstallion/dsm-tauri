@@ -42,10 +42,10 @@ pub fn run() {
         .setup(|app| {
             let version = app.config().version.clone().unwrap_or_default();
             let window = app.get_webview_window("main").unwrap();
-            let appNameAndVersion = format!("Disk Space Monitor v{}", version);
-            let _ = window.set_title(&appNameAndVersion);
+            let app_name_and_version = format!("Disk Space Monitor v{}", version);
+            let _ = window.set_title(&app_name_and_version);
 
-            log::info!("Starting {}", appNameAndVersion);
+            log::info!("Starting {}", app_name_and_version);
 
             let is_low_for_loop = is_low_for_setup;
 
@@ -146,20 +146,6 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running Disk Space Monitor");
 }
-fn setup_log_path() -> Option<std::path::PathBuf> {
-    let log_path = std::env::current_exe()
-        .ok()?
-        .parent()?
-        .join("logs");
-
-    if let Err(e) = std::fs::create_dir_all(&log_path) {
-        eprintln!("Warning: Failed to create log directory at {:?}: {}", log_path, e);
-        return None;
-    }
-
-    Some(log_path)
-}
-
 #[tauri::command]
 fn launch_disk_cleanup() {
     #[cfg(target_os = "windows")]
