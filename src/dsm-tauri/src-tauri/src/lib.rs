@@ -8,7 +8,8 @@ use tauri::Manager;
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
 const LOW_SPACE_THRESHOLD: f64 = 0.10;
-const CHECK_SPACE_INTERVAL: u64 = 15 * 60;
+const MINUTES_IN_A_DAY: i32 = 1440;
+const CHECK_INTERVAL_DEFAULT_MINUTES: i32 = 15;
 mod disk;
 
 struct AppState {
@@ -93,6 +94,8 @@ pub fn run() {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
+                    log::info!("Checking disk space...");
+                    let mut check_space_interval_minutes: u64 = MINUTES_IN_A_DAY as u64;
                     let disks = disk::get_disks_list();
                     let names: Vec<String> = disk::get_low_disk_names(&disks, LOW_SPACE_THRESHOLD);
 
@@ -102,10 +105,11 @@ pub fn run() {
                     } else {
                         let csv_names = names.join(", ");
                         let _ = tray_handle.set_tooltip(Some(format!("Low Space Warning: {}", csv_names)));
-                        log::info!("Low space warning: {}", csv_names);
+                        check_space_interval_minutes = CHECK_INTERVAL_DEFAULT_MINUTES as u64;
+                        log::info!("Low space warning: {} - setting interval to {}", csv_names, check_space_interval_minutes);
                     }
 
-                    tokio::time::sleep(Duration::from_secs(CHECK_SPACE_INTERVAL)).await;
+                    tokio::time::sleep(Duration::from_mins(check_space_interval_minutes)).await;
                 }
             });
 
