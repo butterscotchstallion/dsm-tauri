@@ -92,6 +92,7 @@ pub fn run() {
             // 3. Background Loop for Tooltips
             let tray_handle = tray.clone();
             let app_handle = app.handle().clone();
+            let is_low_space_check = is_low_space.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     log::info!("Checking disk space...");
@@ -102,9 +103,11 @@ pub fn run() {
                     // Update the tooltip during background check too
                     if names.is_empty() {
                         let _: Option<String> = Some("Disk Space Monitor: All clear".into());
+                        is_low_space_check.store(false, Ordering::Relaxed);
                     } else {
                         let csv_names = names.join(", ");
                         let _ = tray_handle.set_tooltip(Some(format!("Low Space Warning: {}", csv_names)));
+                        is_low_space_check.store(true, Ordering::Relaxed);
                         check_space_interval_minutes = CHECK_INTERVAL_DEFAULT_MINUTES as u64;
                         log::info!("Low space warning: {} - setting interval to {}", csv_names, check_space_interval_minutes);
                     }
