@@ -1,5 +1,5 @@
 use crate::disk::get_disks;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
@@ -9,11 +9,13 @@ use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
 const LOW_SPACE_THRESHOLD: f64 = 0.10;
 const MINUTES_IN_A_DAY: i32 = 1440;
-const CHECK_INTERVAL_DEFAULT_MINUTES: i32 = 15;
+const CHECK_INTERVAL_DEFAULT_MINUTES: i32 = MINUTES_IN_A_DAY;
+const CHECK_INTERVAL_LOW_SPACE_MINUTES: i32 = 60;
 mod disk;
 
 struct AppState {
     is_low_space: Arc<AtomicBool>,
+    check_interval: AtomicU64,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -40,7 +42,10 @@ pub fn run() {
             .max_file_size(10 * 1024 * 1024) // 10MB
             .level(log::LevelFilter::Info)
             .build())
-        .manage(AppState { is_low_space: is_low_space.clone() })
+        .manage(AppState {
+            is_low_space: is_low_space.clone(),
+            check_interval: AtomicU64::new(MINUTES_IN_A_DAY as u64),
+        })
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let version = app.config().version.clone().unwrap_or_default();
@@ -96,9 +101,11 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 loop {
                     log::info!("Checking disk space...");
-                    let mut check_space_interval_minutes: u64 = MINUTES_IN_A_DAY as u64;
+                    //let mut check_space_interval_minutes: u64 = MINUTES_IN_A_DAY as u64;
                     let disks = disk::get_disks_list();
                     let names: Vec<String> = disk::get_low_disk_names(&disks, LOW_SPACE_THRESHOLD);
+                    let state = app_handle.state::<AppState>();
+                    state.check_interval.store(CHECK_INTERVAL_DEFAULT_MINUTES as u64, Ordering::Relaxed);
 
                     // Update the tooltip during background check too
                     if names.is_empty() {
@@ -108,20 +115,22 @@ pub fn run() {
                         let csv_names = names.join(", ");
                         let _ = tray_handle.set_tooltip(Some(format!("Low Space Warning: {}", csv_names)));
                         is_low_space_check.store(true, Ordering::Relaxed);
-                        check_space_interval_minutes = CHECK_INTERVAL_DEFAULT_MINUTES as u64;
-                        log::info!("Low space warning: {} - setting interval to {}", csv_names, check_space_interval_minutes);
+                        state.check_interval.store(CHECK_INTERVAL_LOW_SPACE_MINUTES as u64, Ordering::Relaxed);
+                        log::info!("Low space warning: {} - setting interval to {:?}", csv_names, state.check_interval);
                     }
 
-                    tokio::time::sleep(Duration::from_mins(check_space_interval_minutes)).await;
+                    let interval = state.check_interval.load(Ordering::Relaxed);
+                    tokio::time::sleep(Duration::from_mins(interval)).await;
                 }
             });
 
             // Handle blinking
             let is_low_blinker = is_low_space;
             let tray_for_blink = tray;
+            let app_handle_blink = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut visible = true;
-                let normal_icon = app_handle.default_window_icon().unwrap().clone();
+                let normal_icon = app_handle_blink.default_window_icon().unwrap().clone();
 
                 loop {
                     let is_low = is_low_blinker.load(Ordering::Relaxed);
@@ -142,11 +151,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_disks, launch_disk_cleanup, get_app_version
+            get_disks, launch_disk_cleanup, get_app_version, get_check_interval
         ])
         .run(tauri::generate_context!())
         .expect("error while running Disk Space Monitor");
 }
+
+#[tauri::command]
+fn get_check_interval(state: tauri::State<'_, AppState>) -> u64 {
+    state.check_interval.load(Ordering::Relaxed)
+}
+
 #[tauri::command]
 fn launch_disk_cleanup() {
     #[cfg(target_os = "windows")]
@@ -166,8 +181,8 @@ fn get_app_version(app: tauri::AppHandle) -> String {
 #[cfg(test)]
 mod tests {
     use crate::disk::{get_low_disk_names, DiskInfo};
-    use crate::{AppState, LOW_SPACE_THRESHOLD};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use crate::{AppState, LOW_SPACE_THRESHOLD, MINUTES_IN_A_DAY};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
 
     #[test]
@@ -175,6 +190,7 @@ mod tests {
         // 1. Initialize State
         let state = AppState {
             is_low_space: Arc::new(AtomicBool::new(false)),
+            check_interval: AtomicU64::new(MINUTES_IN_A_DAY as u64),
         };
 
         // 2. Simulate Scenario: One disk is low
@@ -217,6 +233,7 @@ mod tests {
         // 2. Initialize AppState correctly
         let state = AppState {
             is_low_space: Arc::new(AtomicBool::new(false)),
+            check_interval: AtomicU64::new(MINUTES_IN_A_DAY as u64),
         };
 
         // 3. Run the same logic used in the get_disks command

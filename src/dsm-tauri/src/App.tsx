@@ -3,6 +3,7 @@ import {useEffect, useRef, useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import {ArrowPathIcon, TrashIcon} from '@heroicons/react/24/solid';
 import {getVersion} from "@tauri-apps/api/app";
+import {ClockIcon} from "@heroicons/react/16/solid";
 
 interface Disk {
     name: string;
@@ -14,33 +15,53 @@ function App() {
     const [disks, setDisks] = useState<Disk[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const [checkIntervalMinutes, setCheckIntervalMinutes] = useState<number>(60);
     const appVersionRef = useRef<string | null>(null);
+    const timerInterval = useRef<number>(null);
+    const [formattedInterval, setFormattedInterval] = useState<string>();
 
     useEffect(() => {
-        loadDisks().then(() => {
+        loadDisksAndGetCheckInterval().then(() => {
             console.log("Loaded disks successfully");
         });
 
-        // Refresh every 15 minutes
-        const interval = setInterval(loadDisks, 15 * 60 * 1000);
+        if (checkIntervalMinutes) {
+            timerInterval.current = setInterval(loadDisksAndGetCheckInterval, checkIntervalMinutes * 60 * 1000);
+        }
 
         getAppVersion().then(version => {
             appVersionRef.current = `v${version}`;
         });
-
-        return () => clearInterval(interval);
+        return () => {
+            if (timerInterval.current) {
+                clearInterval(timerInterval.current);
+            }
+        }
     }, []);
 
     const getAppVersion = async () => {
         return await getVersion();
     }
 
-    const loadDisks = async () => {
+    const getCheckIntervalMinutes = async (): Promise<number> => {
+        return await invoke("get_check_interval");
+    }
+
+    const loadDisksAndGetCheckInterval = async () => {
         setIsLoading(true);
         try {
             const result: Disk[] = await invoke("get_disks");
             setDisks(result);
             setLastUpdated(new Date());
+
+            const intervalMinutes: number = await getCheckIntervalMinutes();
+            if (intervalMinutes != checkIntervalMinutes) {
+                if (timerInterval.current) {
+                    clearInterval(timerInterval.current);
+                }
+                setCheckIntervalMinutes(intervalMinutes);
+                setFormattedInterval(formatInterval(intervalMinutes));
+            }
         } catch (error) {
             console.error("Failed to fetch disks:", error);
         } finally {
@@ -56,6 +77,24 @@ function App() {
         const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    };
+
+    const formatInterval = (minutes: number): string => {
+        if (minutes === 0) return "0m";
+
+        const days = Math.floor(minutes / 1440);
+        const hours = Math.floor((minutes % 1440) / 60);
+        const mins = minutes % 60;
+
+        if (days > 0 && hours === 0 && mins === 0) return `${days}d`;
+        if (hours > 0 && mins === 0) return days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+
+        let result = "";
+        if (days > 0) result += `${days}d `;
+        if (hours > 0) result += `${hours}h `;
+        if (mins > 0) result += `${mins}m`;
+
+        return result.trim();
     };
 
     const openCleanup = async () => {
@@ -86,7 +125,7 @@ function App() {
 
                     <button
                         title="Refresh disk usage data"
-                        onClick={loadDisks}
+                        onClick={loadDisksAndGetCheckInterval}
                         disabled={isLoading}
                         className={`rounded-lg font-medium transition-all ${
                             isLoading
@@ -99,12 +138,22 @@ function App() {
                 </div>
             </div>
 
-            <div className="mb-4 text-sm text-slate-400 flex items-center gap-2">
-                <div
-                    className={`w-2 h-2 rounded-full ${isLoading ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}></div>
-                {lastUpdated
-                    ? `Last updated: ${lastUpdated.toLocaleTimeString()}`
-                    : 'Initial load...'}
+            <div className="mb-4 text-sm text-slate-400 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                    <div
+                        className={`w-2 h-2 rounded-full ${isLoading ? 'bg-amber-500 animate-pulse' : 'bg-green-500'}`}
+                    />
+                    <span>
+                            {lastUpdated
+                                ? `Last updated: ${lastUpdated.toLocaleTimeString()}`
+                                : 'Initial load...'}
+                        </span>
+                </div>
+                <div className="flex items-center gap-1.5 font-mono"
+                     title={`Checking for low space every ${formattedInterval}`}>
+                    <ClockIcon className="w-4 h-4"/>
+                    <span>{formattedInterval}</span>
+                </div>
             </div>
 
             <div className="grid gap-4">
