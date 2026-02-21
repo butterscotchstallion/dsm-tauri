@@ -145,7 +145,7 @@ function App() {
                     />
                     <span>
                             {lastUpdated
-                                ? `Last updated: ${lastUpdated.toLocaleTimeString()}`
+                                ? `Last updated: ${lastUpdated.toLocaleString()}`
                                 : 'Initial load...'}
                         </span>
                 </div>
