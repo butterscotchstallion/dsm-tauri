@@ -19,41 +19,53 @@ struct AppState {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run(start_minimized: bool) {
     let is_low_space = Arc::new(AtomicBool::new(false));
     tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::default()
-            .targets([
-                Target::new(TargetKind::Stdout),
-                Target::new(TargetKind::Webview),
-                // LogDir maps to %APPDATA%/{identifier}/logs on Windows.
-                // This directory is always writable by the user.
-                Target::new(TargetKind::LogDir { file_name: Some("app".to_string()) }),
-            ])
-            .format(|out, message, record| {
-                out.finish(format_args!(
-                    "{} [{}] {}",
-                    chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-                    record.level(),
-                    message
-                ))
-            })
-            .rotation_strategy(RotationStrategy::KeepSome(5))
-            .max_file_size(10 * 1024 * 1024) // 10MB
-            .level(log::LevelFilter::Info)
-            .build())
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::Webview),
+                    // LogDir maps to %APPDATA%/{identifier}/logs on Windows.
+                    // This directory is always writable by the user.
+                    Target::new(TargetKind::LogDir {
+                        file_name: Some("app".to_string()),
+                    }),
+                ])
+                .format(|out, message, record| {
+                    out.finish(format_args!(
+                        "{} [{}] {}",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        record.level(),
+                        message
+                    ))
+                })
+                .rotation_strategy(RotationStrategy::KeepSome(5))
+                .max_file_size(10 * 1024 * 1024) // 10MB
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .manage(AppState {
             is_low_space: is_low_space.clone(),
             check_interval: AtomicU64::new(MINUTES_IN_A_DAY as u64),
         })
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
+        .setup(move |app| {
             let version = app.config().version.clone().unwrap_or_default();
             let window = app.get_webview_window("main").unwrap();
             let app_name_and_version = format!("Disk Space Monitor v{}", version);
             let _ = window.set_title(&app_name_and_version);
 
-            log::info!("Starting {}", app_name_and_version);
+            log::info!(
+                "Starting {} (minimized={})",
+                app_name_and_version,
+                start_minimized
+            );
+
+            if start_minimized {
+                let _ = window.hide();
+            }
 
             // 1. Menu and Window Setup
             let show_i = MenuItem::with_id(app, "show", "Show Monitor", true, None::<&str>)?;
@@ -65,7 +77,11 @@ pub fn run() {
                 .menu(&menu)
                 .tooltip("Disk Space Monitor: Checking...")
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. } = event {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        ..
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
@@ -105,7 +121,9 @@ pub fn run() {
                     let disks = disk::get_disks_list();
                     let names: Vec<String> = disk::get_low_disk_names(&disks, LOW_SPACE_THRESHOLD);
                     let state = app_handle.state::<AppState>();
-                    state.check_interval.store(CHECK_INTERVAL_DEFAULT_MINUTES as u64, Ordering::Relaxed);
+                    state
+                        .check_interval
+                        .store(CHECK_INTERVAL_DEFAULT_MINUTES as u64, Ordering::Relaxed);
 
                     // Update the tooltip during background check too
                     if names.is_empty() {
@@ -113,10 +131,17 @@ pub fn run() {
                         is_low_space_check.store(false, Ordering::Relaxed);
                     } else {
                         let csv_names = names.join(", ");
-                        let _ = tray_handle.set_tooltip(Some(format!("Low Space Warning: {}", csv_names)));
+                        let _ = tray_handle
+                            .set_tooltip(Some(format!("Low Space Warning: {}", csv_names)));
                         is_low_space_check.store(true, Ordering::Relaxed);
-                        state.check_interval.store(CHECK_INTERVAL_LOW_SPACE_MINUTES as u64, Ordering::Relaxed);
-                        log::info!("Low space warning: {} - setting interval to {:?}", csv_names, state.check_interval);
+                        state
+                            .check_interval
+                            .store(CHECK_INTERVAL_LOW_SPACE_MINUTES as u64, Ordering::Relaxed);
+                        log::info!(
+                            "Low space warning: {} - setting interval to {:?}",
+                            csv_names,
+                            state.check_interval
+                        );
                     }
 
                     let interval = state.check_interval.load(Ordering::Relaxed);
@@ -137,7 +162,11 @@ pub fn run() {
 
                     if is_low {
                         visible = !visible;
-                        let _ = tray_for_blink.set_icon(if visible { Some(normal_icon.clone()) } else { None });
+                        let _ = tray_for_blink.set_icon(if visible {
+                            Some(normal_icon.clone())
+                        } else {
+                            None
+                        });
                     } else if !visible {
                         let _ = tray_for_blink.set_icon(Some(normal_icon.clone()));
                         visible = true;
@@ -151,7 +180,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_disks, launch_disk_cleanup, get_app_version, get_check_interval
+            get_disks,
+            launch_disk_cleanup,
+            get_app_version,
+            get_check_interval
         ])
         .run(tauri::generate_context!())
         .expect("error while running Disk Space Monitor");
@@ -167,15 +199,16 @@ fn launch_disk_cleanup() {
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
-        let _ = Command::new("cleanmgr.exe")
-            .arg("/lowdisk")
-            .spawn();
+        let _ = Command::new("cleanmgr.exe").arg("/lowdisk").spawn();
     }
 }
 
 #[tauri::command]
 fn get_app_version(app: tauri::AppHandle) -> String {
-    app.config().version.clone().unwrap_or_else(|| "0.0.0".to_string())
+    app.config()
+        .version
+        .clone()
+        .unwrap_or_else(|| "0.0.0".to_string())
 }
 
 #[cfg(test)]
@@ -195,23 +228,41 @@ mod tests {
 
         // 2. Simulate Scenario: One disk is low
         let disks_with_low = vec![
-            DiskInfo { name: "C:".into(), total_space: 100, available_space: 5 }, // 5% < 10%
+            DiskInfo {
+                name: "C:".into(),
+                total_space: 100,
+                available_space: 5,
+            }, // 5% < 10%
         ];
 
         let low_names = get_low_disk_names(&disks_with_low, LOW_SPACE_THRESHOLD);
-        state.is_low_space.store(!low_names.is_empty(), Ordering::Relaxed);
+        state
+            .is_low_space
+            .store(!low_names.is_empty(), Ordering::Relaxed);
 
-        assert!(state.is_low_space.load(Ordering::Relaxed), "Blinking should be ENABLED when a disk is low");
+        assert!(
+            state.is_low_space.load(Ordering::Relaxed),
+            "Blinking should be ENABLED when a disk is low"
+        );
 
         // 3. Simulate Scenario: Drive space is freed up
         let disks_healthy = vec![
-            DiskInfo { name: "C:".into(), total_space: 100, available_space: 50 }, // 50% > 10%
+            DiskInfo {
+                name: "C:".into(),
+                total_space: 100,
+                available_space: 50,
+            }, // 50% > 10%
         ];
 
         let low_names_cleared = get_low_disk_names(&disks_healthy, LOW_SPACE_THRESHOLD);
-        state.is_low_space.store(!low_names_cleared.is_empty(), Ordering::Relaxed);
+        state
+            .is_low_space
+            .store(!low_names_cleared.is_empty(), Ordering::Relaxed);
 
-        assert!(!state.is_low_space.load(Ordering::Relaxed), "Blinking should be DISABLED when no disks are low");
+        assert!(
+            !state.is_low_space.load(Ordering::Relaxed),
+            "Blinking should be DISABLED when no disks are low"
+        );
     }
 
     #[test]
@@ -240,11 +291,16 @@ mod tests {
         let low_names: Vec<String> = get_low_disk_names(&disks, LOW_SPACE_THRESHOLD);
 
         // 4. Update the state
-        state.is_low_space.store(!low_names.is_empty(), Ordering::Relaxed);
+        state
+            .is_low_space
+            .store(!low_names.is_empty(), Ordering::Relaxed);
 
         // 5. Assertions
         assert_eq!(low_names.len(), 1, "Should have found exactly one low disk");
         assert_eq!(low_names[0], "Low");
-        assert!(state.is_low_space.load(Ordering::Relaxed), "AtomicBool should be true");
+        assert!(
+            state.is_low_space.load(Ordering::Relaxed),
+            "AtomicBool should be true"
+        );
     }
 }
